@@ -1,7 +1,7 @@
 import { Component, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { faTrashAlt, faCheckCircle, faTimesCircle, IconDefinition } from '@fortawesome/free-regular-svg-icons';
-import { faRedoAlt, faSun, faMoon, faCircleHalfStroke, faCheck, faExternalLinkAlt, faDownload, faFileImport, faFileExport, faCopy, faClock, faTachometerAlt } from '@fortawesome/free-solid-svg-icons';
+import { faRedoAlt, faSun, faMoon, faCircleHalfStroke, faCheck, faExternalLinkAlt, faDownload, faFileImport, faFileExport, faCopy, faClock, faTachometerAlt, faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { CookieService } from 'ngx-cookie-service';
 import { map, Observable, of, distinctUntilChanged } from 'rxjs';
@@ -11,6 +11,7 @@ import { MasterCheckboxComponent } from './master-checkbox.component';
 import { Formats, Format, Quality } from './formats';
 import { Theme, Themes } from './theme';
 import {KeyValue} from "@angular/common";
+import { AuthService } from './auth.service';
 
 @Component({
     selector: 'app-root',
@@ -77,8 +78,9 @@ export class AppComponent implements AfterViewInit {
   faGithub = faGithub;
   faClock = faClock;
   faTachometerAlt = faTachometerAlt;
+  faSignOutAlt = faSignOutAlt;
 
-  constructor(public downloads: DownloadsService, private cookieService: CookieService, private http: HttpClient) {
+  constructor(public downloads: DownloadsService, private cookieService: CookieService, private http: HttpClient, public authService: AuthService) {
     this.format = cookieService.get('metube_format') || 'any';
     // Needs to be set or qualities won't automatically be set
     this.setQualities()
@@ -98,6 +100,10 @@ export class AppComponent implements AfterViewInit {
     this.downloads.updated.subscribe(() => {
       this.updateMetrics();
     });
+  }
+
+  logout() {
+    this.authService.logout();
   }
 
   ngOnInit() {

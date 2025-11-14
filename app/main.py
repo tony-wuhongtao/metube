@@ -14,6 +14,8 @@ import logging
 import json
 import pathlib
 import re
+import hashlib
+from datetime import datetime
 from watchfiles import DefaultFilter, Change, awatch
 
 from ytdl import DownloadQueueNotifier, DownloadQueue
@@ -54,6 +56,9 @@ class Config:
         'MAX_CONCURRENT_DOWNLOADS': 3,
         'LOGLEVEL': 'INFO',
         'ENABLE_ACCESSLOG': 'false',
+        'AUTH_ENABLED': 'false',
+        'AUTH_USERNAME': 'admin',
+        'AUTH_PASSWORD': '594007',
     }
 
     _BOOLEAN = ('DOWNLOAD_DIRS_INDEXABLE', 'CUSTOM_DIRS', 'CREATE_CUSTOM_DIRS', 'DELETE_FILE_ON_TRASHCAN', 'DEFAULT_OPTION_PLAYLIST_STRICT_MODE', 'HTTPS', 'ENABLE_ACCESSLOG')
@@ -129,7 +134,53 @@ class ObjectSerializer(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 serializer = ObjectSerializer()
-app = web.Application()
+
+# Authentication middleware
+def auth_middleware_factory(auth_enabled, auth_username, auth_password, url_prefix):
+    @web.middleware
+    async def auth_middleware(request, handler):
+        # If authentication is not enabled, allow all requests
+        if not auth_enabled:
+            return await handler(request)
+        
+        # Allow access to login page, static assets, and robots.txt
+        if (request.path == url_prefix + 'login' or 
+            request.path == url_prefix + 'api/login' or
+            request.path.startswith(url_prefix + 'assets') or
+            request.path == url_prefix + 'robots.txt' or
+            request.path == url_prefix or
+            request.path == url_prefix[:-1]):
+            return await handler(request)
+        
+        # Check session cookie
+        session = request.cookies.get('metube_session')
+        expected_session = hashlib.sha256(
+            (auth_username + auth_password).encode()
+        ).hexdigest()
+        
+        if session == expected_session:
+            return await handler(request)
+        else:
+            # Not authenticated, redirect to login page for GET requests
+            # For API requests, return 401
+            if request.method == 'GET':
+                raise web.HTTPFound(url_prefix + 'login')
+            else:
+                raise web.HTTPUnauthorized(reason='Authentication required')
+    
+    return auth_middleware
+
+# Create app with authentication middleware if enabled
+if config.AUTH_ENABLED:
+    auth_middleware = auth_middleware_factory(
+        config.AUTH_ENABLED, 
+        config.AUTH_USERNAME, 
+        config.AUTH_PASSWORD,
+        config.URL_PREFIX
+    )
+    app = web.Application(middlewares=[auth_middleware])
+else:
+    app = web.Application()
 sio = socketio.AsyncServer(cors_allowed_origins='*')
 sio.attach(app, socketio_path=config.URL_PREFIX + 'socket.io')
 routes = web.RouteTableDef()
@@ -321,7 +372,18 @@ def get_custom_dirs():
     }
 
 @routes.get(config.URL_PREFIX)
-def index(request):
+async def index(request):
+    # If authentication is enabled, check if user is authenticated
+    if config.AUTH_ENABLED:
+        session = request.cookies.get('metube_session')
+        expected_session = hashlib.sha256(
+            (config.AUTH_USERNAME + config.AUTH_PASSWORD).encode()
+        ).hexdigest()
+        
+        if session != expected_session:
+            # Not authenticated, redirect to login page
+            raise web.HTTPFound(config.URL_PREFIX + 'login')
+    
     response = web.FileResponse(os.path.join(config.BASE_DIR, 'ui/dist/metube/browser/index.html'))
     if 'metube_theme' not in request.cookies:
         response.set_cookie('metube_theme', config.DEFAULT_THEME)
@@ -343,6 +405,123 @@ def version(request):
         "yt-dlp": yt_dlp_version,
         "version": os.getenv("METUBE_VERSION", "dev")
     })
+
+@routes.get(config.URL_PREFIX + 'login')
+async def login_page(request):
+    # Check for login error message
+    login_error = request.cookies.get('login_error')
+    
+    # Return login page HTML
+    current_year = datetime.now().year
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>YaoTube - Login</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.6/css/bootstrap.min.css" integrity="sha512-Y4o9ui4SDy096Huuckv3bu6vfy3PG170S/EJO3fD13EJM4R2M5iDrTsDYKrm7U71j9IIupl1RJcBgd6caFbBIA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+        <link rel="icon" type="image/x-icon" href="assets/icons/favicon.ico">
+    </head>
+    <body class="bg-light">
+        <div class="container-fluid min-vh-100 d-flex align-items-center justify-content-center">
+            <div class="row w-100 justify-content-center">
+                <div class="col-12 col-sm-10 col-md-8 col-lg-6 col-xl-5">
+                    <div class="card shadow-lg border-0 rounded-3">
+                        <div class="card-body p-5">
+                            <!-- Logo and Title -->
+                            <div class="text-center mb-5">
+                                <div class="d-flex justify-content-center mb-3">
+                                    <img src="assets/icons/android-chrome-192x192.png" alt="YaoTube Logo" height="64" class="me-3">
+                                </div>
+                                <h1 class="h2 mb-1">YaoTube</h1>
+                                <p class="text-muted">Sign in to your account</p>
+                            </div>
+
+                            <!-- Error Message -->
+                            {'<div class="alert alert-danger alert-dismissible fade show" role="alert">' + login_error + '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>' if login_error else ''}
+
+                            <form method="post" action="{config.URL_PREFIX}api/login">
+                                <div class="mb-4">
+                                    <label for="username" class="form-label fw-bold">Username</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-person" viewBox="0 0 16 16">
+                                                <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/>
+                                            </svg>
+                                        </span>
+                                        <input type="text" class="form-control form-control-lg" id="username" name="username" required placeholder="Enter your username">
+                                    </div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label for="password" class="form-label fw-bold">Password</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-lock" viewBox="0 0 16 16">
+                                                <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM5 8h6a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/>
+                                            </svg>
+                                        </span>
+                                        <input type="password" class="form-control form-control-lg" id="password" name="password" required placeholder="Enter your password">
+                                    </div>
+                                </div>
+
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-primary btn-lg rounded-pill">Sign in</button>
+                                </div>
+                            </form>
+
+                            <!-- Footer -->
+                            <div class="text-center mt-4">
+                                <p class="text-muted mb-0">
+                                    <small>© {current_year} YaoTube by Tony&#64;YaoCheng Studio. All rights reserved.</small>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    # Create response and clear login error cookie if it exists
+    response = web.Response(text=html_content, content_type='text/html')
+    if login_error:
+        response.del_cookie('login_error')
+    return response
+
+@routes.post(config.URL_PREFIX + 'api/login')
+async def api_login(request):
+    post = await request.post()
+    username = post.get('username')
+    password = post.get('password')
+    
+    # Verify credentials
+    if (username == config.AUTH_USERNAME and 
+        password == config.AUTH_PASSWORD):
+        # Create session
+        session = hashlib.sha256(
+            (username + password).encode()
+        ).hexdigest()
+        
+        # Redirect to home page on successful login
+        response = web.HTTPFound(config.URL_PREFIX)
+        response.set_cookie('metube_session', session, max_age=3600, httponly=True)  # 1 hour expiry
+        return response
+    else:
+        # Login failed, redirect back to login page with error
+        response = web.HTTPFound(config.URL_PREFIX + 'login')
+        response.set_cookie('login_error', 'Invalid username or password', max_age=10)
+        return response
+
+@routes.get(config.URL_PREFIX + 'logout')
+async def logout(request):
+    response = web.HTTPFound(config.URL_PREFIX + 'login')
+    # Thoroughly clear the session cookie
+    response.del_cookie('metube_session')
+    response.set_cookie('metube_session', '', max_age=0, expires='Thu, 01 Jan 1970 00:00:00 GMT', path='/')
+    return response
 
 if config.URL_PREFIX != '/':
     @routes.get('/')

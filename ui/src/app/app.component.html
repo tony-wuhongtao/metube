@@ -39,7 +39,7 @@
     </div>
     -->
     <div class="navbar-nav ms-auto">
-      <div class="nav-item dropdown">
+      <div class="nav-item dropdown me-2">
         <button class="btn btn-link nav-link py-2 px-0 px-sm-2 dropdown-toggle d-flex align-items-center"
                 id="theme-select"
                 type="button"
@@ -61,6 +61,16 @@
             </button>
           </li>
         </ul>
+      </div>
+      
+      <div class="nav-item">
+        <button class="btn btn-link nav-link py-2 px-0 px-sm-2 d-flex align-items-center"
+                type="button"
+                (click)="logout()"
+                title="Logout">
+          <fa-icon [icon]="faSignOutAlt"></fa-icon>
+          <span class="d-none d-sm-inline ms-1">Logout</span>
+        </button>
       </div>
     </div>
   </div>

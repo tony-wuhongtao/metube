@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__context7__get-library-docs",
+      "Bash(npm run build:*)",
+      "Bash(uv run python:*)",
+      "Bash(taskkill:*)",
+      "Bash(wmic process where name=\"python.exe\" delete:*)"
+    ],
+    "deny": []
+  }
+}

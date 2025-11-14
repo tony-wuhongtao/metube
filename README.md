@@ -289,3 +289,8 @@ docker build -t metube .
 ```
 
 Note that if you're running the server in VSCode, your downloads will go to your user's Downloads folder (this is configured via the environment in `.vscode/launch.json`).
+
+---
+添加登录功能后部署
+
+docker run -d -p 8081:8081 -e AUTH_ENABLED=true -e AUTH_USERNAME=myuser -e AUTH_PASSWORD=mypassword -v /path/to/downloads:/downloads metube
